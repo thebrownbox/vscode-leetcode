@@ -14,7 +14,8 @@ import * as wsl from "./utils/wslUtils";
 class LeetCodeManager extends EventEmitter {
     private currentUser: string | undefined;
     private userStatus: UserStatus;
-    private readonly successRegex: RegExp = /(?:.*)Successfully .*login as (.*)/i;
+    private readonly successRegex: RegExp =
+        /(?:.*)Successfully .*login as (.*)/i;
     private readonly failRegex: RegExp = /.*\[ERROR\].*/i;
 
     constructor() {
@@ -36,6 +37,7 @@ class LeetCodeManager extends EventEmitter {
         }
     }
 
+    //! conghv
     public async signIn(): Promise<void> {
         const picks: Array<IQuickItemEx<string>> = [];
         picks.push(
@@ -58,91 +60,141 @@ class LeetCodeManager extends EventEmitter {
                 label: "LeetCode Cookie",
                 detail: "Use LeetCode cookie copied from browser to login",
                 value: "Cookie",
-            },
+            }
         );
-        const choice: IQuickItemEx<string> | undefined = await vscode.window.showQuickPick(picks);
+        const choice: IQuickItemEx<string> | undefined =
+            await vscode.window.showQuickPick(picks);
         if (!choice) {
             return;
         }
         const loginMethod: string = choice.value;
-        const commandArg: string | undefined = loginArgsMapping.get(loginMethod);
+        const commandArg: string | undefined =
+            loginArgsMapping.get(loginMethod);
         if (!commandArg) {
-            throw new Error(`The login method "${loginMethod}" is not supported.`);
+            throw new Error(
+                `The login method "${loginMethod}" is not supported.`
+            );
         }
         const isByCookie: boolean = loginMethod === "Cookie";
         const inMessage: string = isByCookie ? "sign in by cookie" : "sign in";
         try {
-            const userName: string | undefined = await new Promise(async (resolve: (res: string | undefined) => void, reject: (e: Error) => void): Promise<void> => {
+            const userName: string | undefined = await new Promise(
+                async (
+                    resolve: (res: string | undefined) => void,
+                    reject: (e: Error) => void
+                ): Promise<void> => {
+                    const leetCodeBinaryPath: string =
+                        await leetCodeExecutor.getLeetCodeBinaryPath();
 
-                const leetCodeBinaryPath: string = await leetCodeExecutor.getLeetCodeBinaryPath();
+                    const childProc: cp.ChildProcess = wsl.useWsl()
+                        ? cp.spawn(
+                              "wsl",
+                              [
+                                  leetCodeExecutor.node,
+                                  leetCodeBinaryPath,
+                                  "user",
+                                  commandArg,
+                              ],
+                              { shell: true }
+                          )
+                        : cp.spawn(
+                              leetCodeExecutor.node,
+                              [leetCodeBinaryPath, "user", commandArg],
+                              {
+                                  shell: true,
+                                  env: createEnvOption(),
+                              }
+                          );
 
-                const childProc: cp.ChildProcess = wsl.useWsl()
-                    ? cp.spawn("wsl", [leetCodeExecutor.node, leetCodeBinaryPath, "user", commandArg], { shell: true })
-                    : cp.spawn(leetCodeExecutor.node, [leetCodeBinaryPath, "user", commandArg], {
-                        shell: true,
-                        env: createEnvOption(),
-                    });
-
-                childProc.stdout?.on("data", async (data: string | Buffer) => {
-                    data = data.toString();
-                    leetCodeChannel.append(data);
-                    if (data.includes("twoFactorCode")) {
-                        const twoFactor: string | undefined = await vscode.window.showInputBox({
-                            prompt: "Enter two-factor code.",
-                            ignoreFocusOut: true,
-                            validateInput: (s: string): string | undefined => s && s.trim() ? undefined : "The input must not be empty",
-                        });
-                        if (!twoFactor) {
-                            childProc.kill();
-                            return resolve(undefined);
+                    childProc.stdout?.on(
+                        "data",
+                        async (data: string | Buffer) => {
+                            data = data.toString();
+                            leetCodeChannel.append(data);
+                            if (data.includes("twoFactorCode")) {
+                                const twoFactor: string | undefined =
+                                    await vscode.window.showInputBox({
+                                        prompt: "Enter two-factor code.",
+                                        ignoreFocusOut: true,
+                                        validateInput: (
+                                            s: string
+                                        ): string | undefined =>
+                                            s && s.trim()
+                                                ? undefined
+                                                : "The input must not be empty",
+                                    });
+                                if (!twoFactor) {
+                                    childProc.kill();
+                                    return resolve(undefined);
+                                }
+                                childProc.stdin?.write(`${twoFactor}\n`);
+                            }
+                            const successMatch: RegExpMatchArray | null =
+                                data.match(this.successRegex);
+                            if (successMatch && successMatch[1]) {
+                                childProc.stdin?.end();
+                                return resolve(successMatch[1]);
+                            } else if (data.match(this.failRegex)) {
+                                childProc.stdin?.end();
+                                return reject(new Error("Faile to login"));
+                            }
                         }
-                        childProc.stdin?.write(`${twoFactor}\n`);
-                    }
-                    const successMatch: RegExpMatchArray | null = data.match(this.successRegex);
-                    if (successMatch && successMatch[1]) {
-                        childProc.stdin?.end();
-                        return resolve(successMatch[1]);
-                    } else if (data.match(this.failRegex)) {
-                        childProc.stdin?.end();
-                        return reject(new Error("Faile to login"));
-                    }
-                });
+                    );
 
-                childProc.stderr?.on("data", (data: string | Buffer) => leetCodeChannel.append(data.toString()));
+                    childProc.stderr?.on("data", (data: string | Buffer) =>
+                        leetCodeChannel.append(data.toString())
+                    );
 
-                childProc.on("error", reject);
-                const name: string | undefined = await vscode.window.showInputBox({
-                    prompt: "Enter username or E-mail.",
-                    ignoreFocusOut: true,
-                    validateInput: (s: string): string | undefined => s && s.trim() ? undefined : "The input must not be empty",
-                });
-                if (!name) {
-                    childProc.kill();
-                    return resolve(undefined);
+                    childProc.on("error", reject);
+                    const name: string | undefined =
+                        await vscode.window.showInputBox({
+                            prompt: "Enter username or E-mail.",
+                            ignoreFocusOut: true,
+                            validateInput: (s: string): string | undefined =>
+                                s && s.trim()
+                                    ? undefined
+                                    : "The input must not be empty",
+                        });
+                    if (!name) {
+                        childProc.kill();
+                        return resolve(undefined);
+                    }
+                    childProc.stdin?.write(`${name}\n`);
+                    const pwd: string | undefined =
+                        await vscode.window.showInputBox({
+                            prompt: isByCookie
+                                ? "Enter cookie"
+                                : "Enter password.",
+                            password: true,
+                            ignoreFocusOut: true,
+                            validateInput: (s: string): string | undefined =>
+                                s
+                                    ? undefined
+                                    : isByCookie
+                                    ? "Cookie must not be empty"
+                                    : "Password must not be empty",
+                        });
+                    if (!pwd) {
+                        childProc.kill();
+                        return resolve(undefined);
+                    }
+                    childProc.stdin?.write(`${pwd}\n`);
                 }
-                childProc.stdin?.write(`${name}\n`);
-                const pwd: string | undefined = await vscode.window.showInputBox({
-                    prompt: isByCookie ? "Enter cookie" : "Enter password.",
-                    password: true,
-                    ignoreFocusOut: true,
-                    validateInput: (s: string): string | undefined => s ? undefined : isByCookie ? "Cookie must not be empty" : "Password must not be empty",
-                });
-                if (!pwd) {
-                    childProc.kill();
-                    return resolve(undefined);
-                }
-                childProc.stdin?.write(`${pwd}\n`);
-            });
+            );
             if (userName) {
-                vscode.window.showInformationMessage(`Successfully ${inMessage}.`);
+                vscode.window.showInformationMessage(
+                    `Successfully ${inMessage}.`
+                );
                 this.currentUser = userName;
                 this.userStatus = UserStatus.SignedIn;
                 this.emit("statusChanged");
             }
         } catch (error) {
-            promptForOpenOutputChannel(`Failed to ${inMessage}. Please open the output channel for details`, DialogType.error);
+            promptForOpenOutputChannel(
+                `Failed to ${inMessage}. Please open the output channel for details`,
+                DialogType.error
+            );
         }
-
     }
 
     public async signOut(): Promise<void> {
